@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MiGoYuGo — Mahjong Edition</title>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Nunito:wght@700;800;900&family=Nunito+Sans:wght@400;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <!-- KONFETI CANVAS -->
+    <canvas id="confetti-canvas"></canvas>
+
+    <!-- TOP HEADER: Logo + Toggle -->
+    <div class="top-header">
+      <div class="logo">
+        <div class="logo-letter">M</div>
+        <div class="logo-letter">I</div>
+        <div class="logo-dot dark"><div class="inner"></div></div>
+        <div class="logo-letter">Y</div>
+        <div class="logo-letter">U</div>
+        <div class="logo-dot light"><div class="inner"></div></div>
+      </div>
+
+      <!-- Day / Night Toggle -->
+      <div class="theme-toggle-wrap">
+        <span>☀️</span>
+        <input
+          class="pristine"
+          type="checkbox"
+          name="toggle"
+          value="on"
+          title="Night mode"
+        />
+        <span>🌙</span>
+      </div>
+    </div>
+
+    <!-- MODE SELECTION (hanya 2 Players) -->
+    <div class="mode-screen scene" id="modeScreen">
+      <h2>🀄 Selamat Datang! 龙</h2>
+      <p>Rasakan nuansa Mahjong dalam duel strategi abadi!</p>
+      <div class="mode-cards">
+        <div
+          class="mode-card selected"
+          data-mode="2p"
+          onclick="selectMode(this)"
+        >
+          <div class="mc-icon">👥</div>
+          <h3>2 Players</h3>
+          <p>
+            Kedua pemain bermain di satu perangkat.<br />Bergantian meletakkan
+            bidak!
+          </p>
+        </div>
+        <div class="mode-card" data-mode="ai" onclick="selectMode(this)">
+          <div class="mc-icon">🤖</div>
+          <h3>vs AI</h3>
+          <p>
+            Tantang kecerdasan buatan!<br />
+            <span class="ai-badge">★ Beginner · Minimax</span>
+          </p>
+        </div>
+      </div>
+      <button class="play-btn" onclick="startGameWithMode()">
+        🀄 Mulai Permainan
+      </button>
+    </div>
+
+    <!-- GAME -->
+    <div class="game-wrap" id="gameWrap">
+      <div class="board-area">
+        <!-- Player 2 (Black) -->
+        <div class="info-bar top" id="topBar">
+          <div class="player-info">
+            <div class="piece-icon black"></div>
+            <span id="topName">Player 2</span>&nbsp;
+            <span class="yugo-badge">
+              <div class="dot-icon"></div>
+              <span id="topYugos">0</span>
+            </span>
+            <span class="turn-arrow">◀</span>
+          </div>
+          <div class="timer" id="topTimer">10:00</div>
+        </div>
+
+        <!-- Board -->
+        <div class="board-outer">
+          <div class="board-container">
+            <div class="board-grid" id="boardGrid"></div>
+            <div class="board-col-labels" id="colLabels"></div>
+          </div>
+        </div>
+
+        <!-- Player 1 (White) -->
+        <div class="info-bar bottom active-turn" id="bottomBar">
+          <div class="player-info">
+            <div class="piece-icon white"></div>
+            <span id="bottomName">Player 1</span>&nbsp;
+            <span class="yugo-badge">
+              <div class="dot-icon"></div>
+              <span id="bottomYugos">0</span>
+            </span>
+            <span class="turn-arrow">◀</span>
+          </div>
+          <div class="timer" id="bottomTimer">10:00</div>
+        </div>
+      </div>
+
+      <!-- Sidebar -->
+      <div class="sidebar">
+        <div class="mode-badge">
+          <span id="modeIcon" class="badge-icon">👥</span>
+          <div>
+            <div id="modeLabel">2 Players</div>
+            <div class="badge-sub" id="diffLabel">Local Co-op</div>
+          </div>
+        </div>
+
+        <div class="btn-row">
+          <button class="btn start" id="pauseBtn" onclick="pauseResume()">
+            Pause
+          </button>
+          <button class="btn reset" onclick="confirmReset()">Reset</button>
+        </div>
+
+        <div class="pass-notice" id="passNotice">
+          🔄 Pass device to the other player!
+        </div>
+
+        <div class="history-panel">
+          <div class="history-title">Move History</div>
+          <div class="history-list" id="historyList"></div>
+        </div>
+
+        <div class="btn-row">
+          <button class="btn blue" onclick="reviewGame()">Review</button>
+          <button class="btn blue" onclick="undoMove()">Undo</button>
+          <button class="btn gray" onclick="goToMenu()">Menu</button>
+        </div>
+
+        <div class="status-msg white-turn" id="statusMsg">
+          White moves first!
+        </div>
+
+        <button class="rules-toggle" onclick="toggleRules()">
+          📋 How to Play
+        </button>
+        <div class="rules-panel" id="rulesPanel">
+          <h4>Objective</h4>
+          <p>
+            Win by forming an <b>Igo</b> (4 Yugos in a line) or have the most
+            Yugos at end (Wego).
+          </p>
+          <h4>Migo</h4>
+          <p>White moves first. Alternate placing pieces on any open square.</p>
+          <h4>Yugo</h4>
+          <p>
+            Form exactly 4 of your pieces in a line → last piece becomes a Yugo
+            (red dot). All other Migos in the line are removed.
+          </p>
+          <h4>No Long Lines</h4>
+          <p>
+            Cannot create a line of more than 4 (Migos + Yugos) of your color.
+          </p>
+          <h4>Winning</h4>
+          <p>
+            <b>Igo:</b> 4 Yugos in a row = instant win!<br /><b>Wego:</b> No
+            legal moves / board full → most Yugos wins.
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <!-- END MODAL -->
+    <div class="modal-backdrop" id="modalBackdrop">
+      <div class="modal" id="modal">
+        <h2 id="modalTitle">Game Over!</h2>
+        <p class="modal-sub" id="modalMsg">White wins!</p>
+        <div class="modal-scores">
+          <div class="sc">
+            <div class="sc-name">⚪ White</div>
+            <div class="sc-num" id="mWS">0</div>
+            <div class="sc-lbl">Yugos</div>
+          </div>
+          <div class="sc">
+            <div class="sc-name">⚫ Black</div>
+            <div class="sc-num" id="mBS">0</div>
+            <div class="sc-lbl">Yugos</div>
+          </div>
+        </div>
+        <div class="modal-btns">
+          <button class="mbtn primary" onclick="playAgain()">Play Again</button>
+          <button class="mbtn secondary" onclick="goToMenu()">Main Menu</button>
+        </div>
+      </div>
+    </div>
+    <script src="script.js"></script>
+  </body>
+</html>

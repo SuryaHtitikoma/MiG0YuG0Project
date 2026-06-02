@@ -28,6 +28,18 @@ let moveCount = 0;
 let lastMove = null;
 let reviewMode = false;
 let reviewStep = 0;
+let gameMode = "2p"; // "2p" | "ai"
+let aiThinking = false;
+
+/* =========================================================
+   MODE CARD SELECTION
+   ========================================================= */
+function selectMode(card) {
+  document
+    .querySelectorAll(".mode-card")
+    .forEach((c) => c.classList.remove("selected"));
+  card.classList.add("selected");
+}
 
 /* =========================================================
    MAHJONG SVG TILES
@@ -104,14 +116,25 @@ function makeTileSVG(isWhite) {
    MODE SELECTION
    ========================================================= */
 function startGameWithMode() {
+  const selectedCard = document.querySelector(".mode-card.selected");
+  gameMode = selectedCard ? selectedCard.dataset.mode : "2p";
+
   const menu = document.getElementById("modeScreen");
   const game = document.getElementById("gameWrap");
 
-  document.getElementById("topName").textContent = "Player 2";
-  document.getElementById("bottomName").textContent = "Player 1";
-  document.getElementById("modeLabel").textContent = "2 Players";
-  document.getElementById("diffLabel").textContent = "Local Co-op";
-  document.getElementById("modeIcon").textContent = "👥";
+  if (gameMode === "ai") {
+    document.getElementById("topName").textContent = "🤖 AI";
+    document.getElementById("bottomName").textContent = "Player 1";
+    document.getElementById("modeLabel").textContent = "vs AI";
+    document.getElementById("diffLabel").textContent = "Beginner";
+    document.getElementById("modeIcon").textContent = "🤖";
+  } else {
+    document.getElementById("topName").textContent = "Player 2";
+    document.getElementById("bottomName").textContent = "Player 1";
+    document.getElementById("modeLabel").textContent = "2 Players";
+    document.getElementById("diffLabel").textContent = "Local Co-op";
+    document.getElementById("modeIcon").textContent = "👥";
+  }
 
   // Fade out menu
   menu.classList.add("fade-out");
@@ -163,6 +186,7 @@ function initAndStart() {
   document.getElementById("passNotice").classList.remove("show");
   document.getElementById("pauseBtn").textContent = "Pause";
   document.getElementById("pauseBtn").onclick = pauseResume;
+  aiThinking = false;
 
   stopConfetti();
   document.getElementById("modal").classList.remove("win-glow");
@@ -236,7 +260,7 @@ function updateTurnHL() {
   top.classList.toggle("active-turn", currentTurn === 2);
   bot.classList.toggle("active-turn", currentTurn === 1);
 
-  if (gameActive && !paused) {
+  if (gameMode === "2p" && gameActive && !paused) {
     const notice = document.getElementById("passNotice");
     notice.classList.add("show");
     setTimeout(() => notice.classList.remove("show"), 2000);
@@ -248,6 +272,8 @@ function updateTurnHL() {
    ========================================================= */
 function onCellClick(r, c) {
   if (!gameActive || paused || reviewMode) return;
+  if (gameMode === "ai" && currentTurn === 2) return; // AI's turn — block human
+  if (aiThinking) return;
   if (board[r][c] !== 0) return;
   if (!isLegal(r, c, currentTurn)) {
     setStatus("⛔ Illegal! Line of 5+ not allowed.", "warn");
@@ -341,6 +367,13 @@ function makeMove(r, c, color) {
 
 function afterMove() {
   if (!gameActive) return;
+  // AI mode: trigger AI move when it's black's turn
+  if (gameMode === "ai" && currentTurn === 2) {
+    setStatus("🤖 AI sedang berpikir…", "ai-thinking");
+    aiThinking = true;
+    setTimeout(triggerAIMove, 650);
+    return;
+  }
   const who = currentTurn === 1 ? "⬜ Player 1 (White)" : "🀄 Player 2 (Black)";
   setStatus(
     who + " — your turn!",
@@ -405,11 +438,12 @@ function hasLegal(color) {
    ========================================================= */
 function endGame(winner, type) {
   gameActive = false;
+  aiThinking = false;
   clearInterval(timerInterval);
   document.getElementById("passNotice").classList.remove("show");
 
   const wN = "Player 1 (White ⬜)";
-  const bN = "Player 2 (Black 🀄)";
+  const bN = gameMode === "ai" ? "AI (Black 🤖)" : "Player 2 (Black 🀄)";
   let title = "",
     msg = "";
 
@@ -524,9 +558,16 @@ function setStatus(msg, cls) {
    ========================================================= */
 function undoMove() {
   if (!gameActive || reviewMode || moveHistory.length === 0) return;
-  moveHistory.pop();
-  historySnaps.pop();
-  moveCount--;
+  if (aiThinking) return; // cannot undo while AI is computing
+
+  // In AI mode: undo both the AI's last reply AND the human's move together
+  const movesToUndo = gameMode === "ai" && moveHistory.length >= 2 ? 2 : 1;
+  for (let i = 0; i < movesToUndo; i++) {
+    if (moveHistory.length === 0) break;
+    moveHistory.pop();
+    historySnaps.pop();
+    moveCount--;
+  }
   if (historySnaps.length > 0) {
     board = JSON.parse(JSON.stringify(historySnaps[historySnaps.length - 1]));
     yugos = JSON.parse(
@@ -640,6 +681,224 @@ function goToMenu() {
 }
 function toggleRules() {
   document.getElementById("rulesPanel").classList.toggle("show");
+}
+
+/* =========================================================
+   AI ENGINE — MINIMAX (Beginner, depth 2)
+   ========================================================= */
+
+/* --- Board-parameter helpers (don't touch global state) --- */
+function find4OnBoard(b, r, c, color) {
+  const mine = color === 1 ? [1, 3] : [2, 4];
+  const lines = [];
+  for (const [dr, dc] of DIRS) {
+    const line = [[r, c]];
+    let nr = r + dr,
+      nc = c + dc;
+    while (ib(nr, nc) && mine.includes(b[nr][nc])) {
+      line.push([nr, nc]);
+      nr += dr;
+      nc += dc;
+    }
+    nr = r - dr;
+    nc = c - dc;
+    while (ib(nr, nc) && mine.includes(b[nr][nc])) {
+      line.unshift([nr, nc]);
+      nr -= dr;
+      nc -= dc;
+    }
+    if (line.length === 4) lines.push(line);
+  }
+  return lines;
+}
+
+function over4OnBoard(b, r, c, color) {
+  const mine = color === 1 ? [1, 3] : [2, 4];
+  for (const [dr, dc] of DIRS) {
+    let cnt = 1,
+      nr = r + dr,
+      nc = c + dc;
+    while (ib(nr, nc) && mine.includes(b[nr][nc])) {
+      cnt++;
+      nr += dr;
+      nc += dc;
+    }
+    nr = r - dr;
+    nc = c - dc;
+    while (ib(nr, nc) && mine.includes(b[nr][nc])) {
+      cnt++;
+      nr -= dr;
+      nc -= dc;
+    }
+    if (cnt > 4) return true;
+  }
+  return false;
+}
+
+function isLegalOnBoard(b, r, c, color) {
+  b[r][c] = color;
+  const bad = over4OnBoard(b, r, c, color);
+  b[r][c] = 0;
+  return !bad;
+}
+
+function checkIgoOnBoard(b, color) {
+  const yv = color === 1 ? 3 : 4;
+  for (let r = 0; r < BS; r++)
+    for (let c = 0; c < BS; c++) {
+      if (b[r][c] !== yv) continue;
+      for (const [dr, dc] of DIRS) {
+        let cnt = 1,
+          nr = r + dr,
+          nc = c + dc;
+        while (ib(nr, nc) && b[nr][nc] === yv) {
+          cnt++;
+          nr += dr;
+          nc += dc;
+        }
+        if (cnt >= 4) return true;
+      }
+    }
+  return false;
+}
+
+function hasLegalOnBoard(b, color) {
+  for (let r = 0; r < BS; r++)
+    for (let c = 0; c < BS; c++)
+      if (b[r][c] === 0 && isLegalOnBoard(b, r, c, color)) return true;
+  return false;
+}
+
+/* --- Simulate a move on a copy; returns {board, yugos, igo} --- */
+function simMove(b, y, r, c, color) {
+  const nb = b.map((row) => [...row]);
+  const ny = { ...y };
+  nb[r][c] = color;
+  const lines = find4OnBoard(nb, r, c, color);
+  if (lines.length > 0) {
+    for (const line of lines)
+      for (const [lr, lc] of line) if (nb[lr][lc] === color) nb[lr][lc] = 0;
+    nb[r][c] = color === 1 ? 3 : 4;
+    ny[color]++;
+  }
+  const igo = checkIgoOnBoard(nb, color);
+  return { board: nb, yugos: ny, igo };
+}
+
+/* --- Legal move list for a board state --- */
+function getLegalMoves(b, color) {
+  const moves = [];
+  for (let r = 0; r < BS; r++)
+    for (let c = 0; c < BS; c++)
+      if (b[r][c] === 0 && isLegalOnBoard(b, r, c, color)) moves.push([r, c]);
+  return moves;
+}
+
+/* --- Heuristic evaluation (AI = 2 = maximizer) --- */
+function evaluate(b, y) {
+  let score = (y[2] - y[1]) * 1000;
+  // Score every window of 4 cells in each direction
+  for (let r = 0; r < BS; r++) {
+    for (let c = 0; c < BS; c++) {
+      for (const [dr, dc] of DIRS) {
+        if (!ib(r + dr * 3, c + dc * 3)) continue;
+        let aiCnt = 0,
+          humanCnt = 0;
+        for (let i = 0; i < 4; i++) {
+          const v = b[r + dr * i][c + dc * i];
+          if (v === 2 || v === 4) aiCnt++;
+          else if (v === 1 || v === 3) humanCnt++;
+        }
+        if (humanCnt === 0 && aiCnt > 0) {
+          // AI's window — reward
+          score += aiCnt === 3 ? 60 : aiCnt === 2 ? 12 : 2;
+        }
+        if (aiCnt === 0 && humanCnt > 0) {
+          // Human's window — penalise (block urgency)
+          score -= humanCnt === 3 ? 90 : humanCnt === 2 ? 18 : 3;
+        }
+      }
+    }
+  }
+  return score;
+}
+
+/* --- Minimax with alpha-beta pruning --- */
+function minimax(b, y, depth, isMaximizing, alpha, beta) {
+  // Terminal: check Igo win for either side
+  if (checkIgoOnBoard(b, 2)) return 100000;
+  if (checkIgoOnBoard(b, 1)) return -100000;
+  if (depth === 0) return evaluate(b, y);
+
+  const color = isMaximizing ? 2 : 1;
+  const moves = getLegalMoves(b, color);
+  if (moves.length === 0) return (y[2] - y[1]) * 1000; // Wego
+
+  if (isMaximizing) {
+    let best = -Infinity;
+    for (const [r, c] of moves) {
+      const { board: nb, yugos: ny, igo } = simMove(b, y, r, c, 2);
+      if (igo) return 100000; // immediate win
+      const val = minimax(nb, ny, depth - 1, false, alpha, beta);
+      best = Math.max(best, val);
+      alpha = Math.max(alpha, val);
+      if (beta <= alpha) break;
+    }
+    return best;
+  } else {
+    let best = Infinity;
+    for (const [r, c] of moves) {
+      const { board: nb, yugos: ny, igo } = simMove(b, y, r, c, 1);
+      if (igo) return -100000;
+      const val = minimax(nb, ny, depth - 1, true, alpha, beta);
+      best = Math.min(best, val);
+      beta = Math.min(beta, val);
+      if (beta <= alpha) break;
+    }
+    return best;
+  }
+}
+
+/* --- Pick the best AI move (Beginner = depth 2 + 30% imperfection) --- */
+function getBestAIMove() {
+  const moves = getLegalMoves(board, 2);
+  if (moves.length === 0) return null;
+
+  // Score every candidate
+  const scored = moves.map(([r, c]) => {
+    const { board: nb, yugos: ny, igo } = simMove(board, yugos, r, c, 2);
+    const val = igo ? 100000 : minimax(nb, ny, 2, false, -Infinity, Infinity);
+    return { r, c, val };
+  });
+
+  scored.sort((a, b) => b.val - a.val);
+  const best = scored[0].val;
+  const topMoves = scored.filter((m) => m.val === best);
+
+  // Beginner imperfection: 30% chance to pick from top-3 instead of top-1
+  if (Math.random() < 0.3) {
+    const pool = scored.slice(0, Math.min(3, scored.length));
+    const pick = pool[Math.floor(Math.random() * pool.length)];
+    return [pick.r, pick.c];
+  }
+
+  const pick = topMoves[Math.floor(Math.random() * topMoves.length)];
+  return [pick.r, pick.c];
+}
+
+/* --- Execute AI move --- */
+function triggerAIMove() {
+  if (!gameActive || paused) {
+    aiThinking = false;
+    return;
+  }
+  const move = getBestAIMove();
+  aiThinking = false;
+  if (!move) {
+    endGame(null, "wego");
+    return;
+  }
+  makeMove(move[0], move[1], 2);
 }
 
 /* =========================================================

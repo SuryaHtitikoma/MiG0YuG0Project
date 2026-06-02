@@ -467,6 +467,27 @@ body > * {
   margin: 0;
   line-height: 1.5;
 }
+.ai-badge {
+  display: inline-block;
+  margin-top: 4px;
+  background: linear-gradient(135deg, #c0392b, #8b1a00);
+  color: #ffd84d;
+  font-size: 10px;
+  font-weight: 700;
+  border-radius: 6px;
+  padding: 2px 7px;
+  letter-spacing: 0.5px;
+}
+.status-msg.ai-thinking {
+  background: #eaf0ff;
+  border-color: #5a7acc;
+  color: #1a3a88;
+}
+body.night-mode .status-msg.ai-thinking {
+  background: #0a1030;
+  border-color: #3a5acc;
+  color: #90b0ff;
+}
 
 .play-btn {
   width: 100%;
