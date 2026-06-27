@@ -1,6 +1,0 @@
-{
-  "name": "MigoYugo Mahjong",
-  "description": "An abstract strategy board game played on an 8x8 grid with a beautiful Chinese Mahjong aesthetic, featuring local pass-and-play, AI opponents, and game clocks.",
-  "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
-}
