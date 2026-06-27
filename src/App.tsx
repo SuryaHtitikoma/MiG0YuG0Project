@@ -55,7 +55,8 @@ export default function App() {
     p1Name: 'Pemain Merah',
     p2Name: 'Pemain Hijau',
     gameMode: 'local',
-    aiDifficulty: 'medium',
+    playerColor: 'white',
+    aiDifficulty: 'master',
     clockEnabled: false,
     clockTimeLimit: 180, // 3 minutes default
   });
@@ -142,7 +143,12 @@ export default function App() {
 
   // 2. COMPUTER AI TURN TRIGGERS
   useEffect(() => {
-    if (phase !== 'playing' || winner || settings.gameMode !== 'ai' || turn !== 'black') {
+    const isAiTurn = settings.gameMode === 'ai' && (
+      (settings.playerColor === 'white' && turn === 'black') || 
+      (settings.playerColor === 'black' && turn === 'white')
+    );
+
+    if (phase !== 'playing' || winner || !isAiTurn) {
       return;
     }
 
@@ -150,12 +156,12 @@ export default function App() {
     setDragonHint(null); // Clear hint so opponent doesn't see
 
     // Simulate thinking delay so AI feels realistic and meditative
-    const thinkingDelay = settings.aiDifficulty === 'easy' ? 800 : settings.aiDifficulty === 'medium' ? 1200 : 1600;
+    const thinkingDelay = settings.aiDifficulty === 'baby' ? 600 : settings.aiDifficulty === 'novice' ? 800 : settings.aiDifficulty === 'master' ? 1200 : 1600;
 
     const timer = setTimeout(() => {
-      const bestMove = getBestMove(board, 'black', settings.aiDifficulty);
+      const bestMove = getBestMove(board, turn, settings.aiDifficulty);
       if (bestMove) {
-        processMove(bestMove[0], bestMove[1], 'black');
+        processMove(bestMove[0], bestMove[1], turn);
       } else {
         // AI has no moves, immediate Wego!
         triggerWegoEnd();
@@ -164,7 +170,7 @@ export default function App() {
     }, thinkingDelay);
 
     return () => clearTimeout(timer);
-  }, [phase, turn, winner, settings.gameMode, settings.aiDifficulty]);
+  }, [phase, turn, winner, settings.gameMode, settings.aiDifficulty, settings.playerColor]);
 
   // Main board move executor
   const processMove = (r: number, c: number, activePlayer: Player) => {
@@ -212,8 +218,12 @@ export default function App() {
 
   // Trigger pass-and-play moves
   const handleUserMove = (r: number, c: number) => {
-    // block moves if AI is active thinking
-    if (settings.gameMode === 'ai' && turn === 'black') return;
+    // block moves if AI is active thinking or it's AI's turn
+    const isAiTurn = settings.gameMode === 'ai' && (
+      (settings.playerColor === 'white' && turn === 'black') || 
+      (settings.playerColor === 'black' && turn === 'white')
+    );
+    if (isAiTurn) return;
     processMove(r, c, turn);
   };
 
@@ -243,7 +253,7 @@ export default function App() {
 
   // Get Move Hints with traditional Asian wisdom comments (The Master Mind Sage hints)
   const handleGetAiHint = () => {
-    const move = getBestMove(board, turn, 'hard');
+    const move = getBestMove(board, turn, 'grandmaster');
     if (!move) {
       setErrorMessage('Tiada langkah legal tersisa untuk diberikan bimbingan.');
       return;
@@ -308,6 +318,9 @@ export default function App() {
     blackMigos: countMigos(board).black,
     emptySquares: board.flat().filter(cell => cell === null).length,
   };
+
+  const p1DisplayName = settings.gameMode === 'ai' && settings.playerColor === 'black' ? 'Suhu Komputer' : settings.p1Name;
+  const p2DisplayName = settings.gameMode === 'ai' && settings.playerColor === 'white' ? 'Suhu Komputer' : settings.p2Name;
 
   return (
     <div className="min-h-screen bg-[#11241a] text-[#fbf9f4] flex flex-col items-center justify-between p-4 selection:bg-red-700 selection:text-white font-sans overflow-x-hidden relative">
@@ -414,34 +427,66 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Dynamic Sub-Settings for AI Difficulty */}
+              {/* Dynamic Sub-Settings for AI Difficulty and Color */}
               {settings.gameMode === 'ai' && (
                 <motion.div
                   initial={{ height: 0, opacity: 0 }}
                   animate={{ height: 'auto', opacity: 1 }}
-                  className="space-y-2 border-t border-gray-200/65 pt-3 overflow-hidden"
+                  className="space-y-4 border-t border-gray-200/65 pt-3 overflow-hidden"
                 >
-                  <label className="text-xs font-bold text-gray-700 uppercase tracking-wider font-serif">Tingkat Kesaktian Komputer</label>
-                  <div className="grid grid-cols-3 gap-2">
-                    {(['easy', 'medium', 'hard'] as const).map((diff) => {
-                      const diffLabels = { easy: 'Novice Monk', medium: 'Mahjong Master', hard: 'Grandmaster' };
-                      return (
-                        <button
-                          key={`diff-${diff}`}
-                          id={`diff-${diff}-btn`}
-                          onClick={() => {
-                            sounds.playClick();
-                            setSettings(prev => ({ ...prev, aiDifficulty: diff }));
-                          }}
-                          className={`p-2 rounded text-xs leading-tight border font-serif text-center font-bold capitalize transition
-                            ${settings.aiDifficulty === diff 
-                              ? 'bg-[#8b261a] text-white border-[#8b261a]' 
-                              : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'}`}
-                        >
-                          {diffLabels[diff]}
-                        </button>
-                      );
-                    })}
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-gray-700 uppercase tracking-wider font-serif">Pilih Pendekar Anda</label>
+                    <div className="grid grid-cols-2 gap-3">
+                      <button
+                        onClick={() => {
+                          sounds.playClick();
+                          setSettings(prev => ({ ...prev, playerColor: 'white' }));
+                        }}
+                        className={`p-2 rounded text-xs leading-tight border font-serif text-center font-bold flex items-center justify-center gap-2 transition
+                          ${settings.playerColor === 'white' 
+                            ? 'bg-red-50 text-red-800 border-red-300 ring-1 ring-red-500' 
+                            : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'}`}
+                      >
+                        <span className="text-red-700 text-lg">中</span> Pendekar Merah (Pertama)
+                      </button>
+                      <button
+                        onClick={() => {
+                          sounds.playClick();
+                          setSettings(prev => ({ ...prev, playerColor: 'black' }));
+                        }}
+                        className={`p-2 rounded text-xs leading-tight border font-serif text-center font-bold flex items-center justify-center gap-2 transition
+                          ${settings.playerColor === 'black' 
+                            ? 'bg-emerald-50 text-emerald-800 border-emerald-300 ring-1 ring-emerald-500' 
+                            : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'}`}
+                      >
+                        <span className="text-emerald-700 text-lg">發</span> Pendekar Hijau (Kedua)
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-gray-700 uppercase tracking-wider font-serif">Tingkat Kesaktian Komputer</label>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                      {(['baby', 'novice', 'master', 'grandmaster'] as const).map((diff) => {
+                        const diffLabels = { baby: 'Baby Naga', novice: 'Novice Monk', master: 'Mahjong Master', grandmaster: 'Grandmaster' };
+                        return (
+                          <button
+                            key={`diff-${diff}`}
+                            id={`diff-${diff}-btn`}
+                            onClick={() => {
+                              sounds.playClick();
+                              setSettings(prev => ({ ...prev, aiDifficulty: diff }));
+                            }}
+                            className={`p-1 sm:p-2 rounded text-[10px] sm:text-xs leading-tight border font-serif text-center font-bold capitalize transition
+                              ${settings.aiDifficulty === diff 
+                                ? 'bg-[#8b261a] text-white border-[#8b261a]' 
+                                : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'}`}
+                          >
+                            {diffLabels[diff]}
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
                 </motion.div>
               )}
@@ -451,36 +496,44 @@ export default function App() {
                 <div className="flex flex-col gap-1">
                   <label className="text-[11px] font-bold text-gray-600 uppercase tracking-wider font-serif">Pendekar Merah (Mulai Pertama)</label>
                   <div className="relative flex items-center">
-                    <User className="absolute left-3 w-4 h-4 text-red-650" />
+                    {settings.gameMode === 'ai' && settings.playerColor === 'black' ? (
+                      <Cpu className="absolute left-3 w-4 h-4 text-red-650" />
+                    ) : (
+                      <User className="absolute left-3 w-4 h-4 text-red-650" />
+                    )}
                     <input
                       id="p1-name-input"
                       type="text"
                       maxLength={18}
-                      value={settings.p1Name}
+                      value={settings.gameMode === 'ai' && settings.playerColor === 'black' ? 'Suhu Komputer' : settings.p1Name}
+                      disabled={settings.gameMode === 'ai' && settings.playerColor === 'black'}
                       onChange={(e) => setSettings(prev => ({ ...prev, p1Name: e.target.value || 'Pemain Merah' }))}
-                      className="w-full pl-9 pr-3 py-2 bg-white border border-gray-300 rounded-lg text-sm text-gray-800 font-bold focus:outline-none focus:ring-2 focus:ring-[#8b261a] focus:border-[#8b261a]"
+                      className="w-full pl-9 pr-3 py-2 bg-white border border-gray-300 rounded-lg text-sm text-gray-800 font-bold focus:outline-none focus:ring-2 focus:ring-[#8b261a] focus:border-[#8b261a] disabled:bg-gray-100 disabled:text-gray-500"
                       placeholder="Nama Pendekar Merah"
                     />
                   </div>
                 </div>
 
-                {settings.gameMode === 'local' && (
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[11px] font-bold text-gray-600 uppercase tracking-wider font-serif">Pendekar Hijau</label>
-                    <div className="relative flex items-center">
+                <div className="flex flex-col gap-1">
+                  <label className="text-[11px] font-bold text-gray-600 uppercase tracking-wider font-serif">Pendekar Hijau (Kedua)</label>
+                  <div className="relative flex items-center">
+                    {settings.gameMode === 'ai' && settings.playerColor === 'white' ? (
+                      <Cpu className="absolute left-3 w-4 h-4 text-emerald-700" />
+                    ) : (
                       <User className="absolute left-3 w-4 h-4 text-emerald-700" />
-                      <input
-                        id="p2-name-input"
-                        type="text"
-                        maxLength={18}
-                        value={settings.p2Name}
-                        onChange={(e) => setSettings(prev => ({ ...prev, p2Name: e.target.value || 'Pemain Hijau' }))}
-                        className="w-full pl-9 pr-3 py-2 bg-white border border-gray-300 rounded-lg text-sm text-gray-800 font-bold focus:outline-none focus:ring-2 focus:ring-[#8b261a] focus:border-[#8b261a]"
-                        placeholder="Nama Pendekar Hijau"
-                      />
-                    </div>
+                    )}
+                    <input
+                      id="p2-name-input"
+                      type="text"
+                      maxLength={18}
+                      value={settings.gameMode === 'ai' && settings.playerColor === 'white' ? 'Suhu Komputer' : settings.p2Name}
+                      disabled={settings.gameMode === 'ai' && settings.playerColor === 'white'}
+                      onChange={(e) => setSettings(prev => ({ ...prev, p2Name: e.target.value || 'Pemain Hijau' }))}
+                      className="w-full pl-9 pr-3 py-2 bg-white border border-gray-300 rounded-lg text-sm text-gray-800 font-bold focus:outline-none focus:ring-2 focus:ring-[#8b261a] focus:border-[#8b261a] disabled:bg-gray-100 disabled:text-gray-500"
+                      placeholder="Nama Pendekar Hijau"
+                    />
                   </div>
-                )}
+                </div>
               </div>
 
               {/* Game Timers Configuration */}
@@ -625,7 +678,7 @@ export default function App() {
                       <div className="flex justify-between">
                         <span>Langkah Terakhir:</span>
                         <span className="text-[#cbb27a] font-bold">
-                          {turn === 'black' ? settings.p1Name : settings.p2Name} meletakkan di {String.fromCharCode(65 + lastPlacedCell[1])}{8 - lastPlacedCell[0]}
+                          {turn === 'black' ? p1DisplayName : p2DisplayName} meletakkan di {String.fromCharCode(65 + lastPlacedCell[1])}{8 - lastPlacedCell[0]}
                         </span>
                       </div>
                     ) : (
@@ -679,7 +732,7 @@ export default function App() {
                   <div className="space-y-2">
                     <span className="text-[10px] font-mono text-[#b45309] uppercase tracking-wider font-bold">PEMULIA SEJATI</span>
                     <h3 className="text-2xl font-black font-serif text-red-850">
-                      🎉 {winner === 'white' ? settings.p1Name : settings.p2Name} 🎉
+                      🎉 {winner === 'white' ? p1DisplayName : p2DisplayName} 🎉
                     </h3>
                     <p className="text-xs text-gray-700 italic font-serif">
                       {winner === 'white' 
@@ -702,7 +755,7 @@ export default function App() {
               <div className="grid grid-cols-2 gap-4 text-xs font-serif bg-white p-4 rounded-xl border border-gray-150">
                 <div className="space-y-2 text-center border-r border-gray-200">
                   <span className="text-xs font-bold text-[#8b261a] block border-b border-[#8b261a]/10 pb-1 flex items-center justify-center gap-1">
-                    <span className="text-red-700">中</span> {settings.p1Name}
+                    <span className="text-red-700">中</span> {p1DisplayName}
                   </span>
                   <div className="flex justify-around pt-1">
                     <div>
@@ -721,7 +774,7 @@ export default function App() {
 
                 <div className="space-y-2 text-center">
                   <span className="text-xs font-bold text-emerald-800 block border-b border-emerald-800/10 pb-1 flex items-center justify-center gap-1">
-                    <span className="text-emerald-700">發</span> {settings.p2Name}
+                    <span className="text-emerald-700">發</span> {p2DisplayName}
                   </span>
                   <div className="flex justify-around pt-1">
                     <div>

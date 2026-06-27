@@ -23,7 +23,8 @@ export interface GameSettings {
   p1Name: string;
   p2Name: string;
   gameMode: 'local' | 'ai';
-  aiDifficulty: 'easy' | 'medium' | 'hard';
+  playerColor: 'white' | 'black';
+  aiDifficulty: 'baby' | 'novice' | 'master' | 'grandmaster';
   clockEnabled: boolean;
   clockTimeLimit: number; // in seconds
 }

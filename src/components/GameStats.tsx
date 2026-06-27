@@ -94,7 +94,7 @@ export default function GameStats({
         {/* Tactical Actions */}
         <div className="flex items-center gap-1.5">
           {/* Hint generator (Gemini or Chess Sage) */}
-          {!winner && settings.gameMode === 'local' && (
+          {!winner && (settings.gameMode === 'local' || (settings.gameMode === 'ai' && ((settings.playerColor === 'white' && turn === 'white') || (settings.playerColor === 'black' && turn === 'black')))) && (
             <button
               id="ai-hint-btn"
               onClick={() => {
@@ -165,8 +165,12 @@ export default function GameStats({
             </div>
             <div className="overflow-hidden">
               <div className="text-xs font-bold font-serif text-[#8b261a] flex items-center gap-1 truncate" title={settings.p1Name}>
-                <User className="w-3.5 h-3.5 shrink-0" />
-                <span>{settings.p1Name}</span>
+                {settings.gameMode === 'ai' && settings.playerColor === 'black' ? (
+                  <Cpu className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                ) : (
+                  <User className="w-3.5 h-3.5 shrink-0" />
+                )}
+                <span>{settings.gameMode === 'ai' && settings.playerColor === 'black' ? 'Suhu Komputer' : settings.p1Name}</span>
               </div>
               <div className="text-[10px] text-gray-500 font-mono font-bold">Warna Bidak: Putih</div>
             </div>
@@ -220,12 +224,12 @@ export default function GameStats({
             </div>
             <div className="overflow-hidden">
               <div className="text-xs font-bold font-serif text-emerald-800 flex items-center gap-1 truncate" title={settings.p2Name}>
-                {settings.gameMode === 'ai' ? (
+                {settings.gameMode === 'ai' && settings.playerColor === 'white' ? (
                   <Cpu className="w-3.5 h-3.5 text-blue-600 shrink-0" />
                 ) : (
                   <User className="w-3.5 h-3.5 shrink-0" />
                 )}
-                <span>{settings.p2Name}</span>
+                <span>{settings.gameMode === 'ai' && settings.playerColor === 'white' ? 'Suhu Komputer' : settings.p2Name}</span>
               </div>
               <div className="text-[10px] text-gray-500 font-mono font-bold">Warna Bidak: Hitam</div>
             </div>

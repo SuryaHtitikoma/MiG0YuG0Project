@@ -343,38 +343,21 @@ export function countMigos(board: BoardState) {
 export function getBestMove(
   board: BoardState,
   player: Player,
-  difficulty: 'easy' | 'medium' | 'hard'
+  difficulty: 'baby' | 'novice' | 'master' | 'grandmaster' = 'master'
 ): [number, number] | null {
   const legalMoves = getLegalMoves(board, player);
   if (legalMoves.length === 0) return null;
 
   const opponent: Player = player === 'white' ? 'black' : 'white';
 
-  // 1. EASY DIFFICULTY: Novice Monk
-  // Selects randomly with slight preference for near-center moves
-  if (difficulty === 'easy') {
-    // Group moves by distance to center
-    const movesSorted = [...legalMoves].sort((a, b) => {
-      const distA = Math.abs(a[0] - 3.5) + Math.abs(a[1] - 3.5);
-      const distB = Math.abs(b[0] - 3.5) + Math.abs(b[1] - 3.5);
-      return distA - distB;
-    });
-    // Pick from the top 50% randomly or just random
-    if (Math.random() < 0.6) {
-      return legalMoves[Math.floor(Math.random() * legalMoves.length)];
-    }
-    return movesSorted[Math.floor(Math.random() * Math.min(5, movesSorted.length))];
+  // 1. BABY DIFFICULTY: Pure Random
+  // No deep thought, completely random legal move
+  if (difficulty === 'baby') {
+    return legalMoves[Math.floor(Math.random() * legalMoves.length)];
   }
 
-  // 2. MEDIUM DIFFICULTY: Mahjong Master
-  // Heuristic priorities:
-  // - 1st: Win matches (any move that triggers exact Igo line of 4 Yugos)
-  // - 2nd: Create a Yugo on this turn
-  // - 3rd: Block opponent's immediate Yugo creation (opponent has 3-in-a-row)
-  // - 4th: Form lines of 3 to prepare a Yugo next turn
-  // - 5th: Choose central positional moves
-
-  // Evaluate moves based on immediate results
+  // PRE-SORTING: Heuristic priorities for better move branching
+  // Evaluate immediate moves
   const moveEvaluations = legalMoves.map(([r, c]) => {
     let score = 0;
 
@@ -383,59 +366,22 @@ export function getBestMove(
     score += (7 - distToCenter) * 0.5;
 
     try {
-      // Simulate executive move for player
       const sim = executeMove(board, r, c, player);
 
-      // Check for immediate IGO
-      if (checkForIgo(sim.newBoard, player)) {
-        score += 10000; // Immediate win!
-      }
+      if (checkForIgo(sim.newBoard, player)) score += 10000;
+      if (sim.yugoCreated) score += 300;
 
-      // Check if it creates a Yugo
-      if (sim.yugoCreated) {
-        score += 300;
-        // Check if this newly created Yugo is close to other Yugos
-        // The more Yugos in line, the higher the score
-        const dirScoring = [
-          { dr: 0, dc: 1 }, { dr: 1, dc: 0 }, { dr: 1, dc: 1 }, { dr: -1, dc: 1 }
-        ];
-        let localYugoStreak = 0;
-        for (const dir of dirScoring) {
-          const yugCount = 1 +
-            countContiguous(sim.newBoard, r, c, dir.dr, dir.dc, player) + // oops countContiguous counts Migo too, but let's count Yugos
-            countContiguous(sim.newBoard, r, c, -dir.dr, -dir.dc, player);
-          localYugoStreak = Math.max(localYugoStreak, yugCount);
-        }
-        score += localYugoStreak * 10;
-      }
+    } catch (e) { }
 
-      // What if we form a line of 3? (Close to forming a Yugo)
-      for (const dir of [
-        { dr: 0, dc: 1 }, { dr: 1, dc: 0 }, { dr: 1, dc: 1 }, { dr: -1, dc: 1 }
-      ]) {
-        const len = 1 +
-          countContiguous(sim.newBoard, r, c, dir.dr, dir.dc, player) +
-          countContiguous(sim.newBoard, r, c, -dir.dr, -dir.dc, player);
-        if (len === 3) score += 40;
-      }
-
-    } catch (e) {
-      // Ignore invalid simulation errors
-    }
-
-    // Block opponent's immediate threats
-    // Check if placing here blocks an opponent's line of 3 of their own color (which would let them form a Yugo)
+    // Immediate block opponent threats
     for (const dir of [
       { dr: 0, dc: 1 }, { dr: 1, dc: 0 }, { dr: 1, dc: 1 }, { dr: -1, dc: 1 }
     ]) {
-      const oppLen = 1 +
-        countContiguous(board, r, c, dir.dr, dir.dc, opponent) +
+      const oppLen = countContiguous(board, r, c, dir.dr, dir.dc, opponent) +
         countContiguous(board, r, c, -dir.dr, -dir.dc, opponent);
-      if (oppLen === 4) {
-        // Opponent would have won/placed here or made a long line (if they could)
-        score += 1500; // Block illegal line or threat
-      } else if (oppLen === 3) {
-        // Block opponent forming exactly 4 next turn
+      if (oppLen >= 3) {
+        score += 1500; // Block
+      } else if (oppLen === 2) {
         score += 200;
       }
     }
@@ -443,33 +389,42 @@ export function getBestMove(
     return { move: [r, c] as [number, number], score };
   });
 
-  if (difficulty === 'medium') {
-    // Sort and return the best rated move
-    moveEvaluations.sort((a, b) => b.score - a.score);
-    return moveEvaluations[0].move;
+  // Pre-sort descending
+  moveEvaluations.sort((a, b) => b.score - a.score);
+
+  // Set Depths and Branch Constraints based on difficulty
+  let depth = 2; // default
+  let maxBranch = 15;
+
+  if (difficulty === 'novice') {
+    depth = 2;
+    maxBranch = 10;
+  } else if (difficulty === 'master') {
+    depth = 3;
+    maxBranch = 12;
+  } else if (difficulty === 'grandmaster') {
+    depth = 6;
+    maxBranch = 6; // Heavy branch pruning for depth 6 to ensure it runs smooth
   }
 
-  // 3. HARD DIFFICULTY: Grandmaster Sage (Minimax with alpha-beta + deep heuristic evaluation)
-  // Depth: 2 (to ensure quick response inside browsers)
+  // Select top N best candidate branches to explore
+  const sortedLegalMoves = moveEvaluations.slice(0, maxBranch).map(e => e.move);
+
   let bestMove: [number, number] | null = null;
   let maxScore = -Infinity;
-
-  // Pre-sort moves using medium heuristics to make alpha-beta pruning highly efficient
-  moveEvaluations.sort((a, b) => b.score - a.score);
-  const sortedLegalMoves = moveEvaluations.map(e => e.move);
 
   for (const move of sortedLegalMoves) {
     const [r, c] = move;
     try {
       const sim = executeMove(board, r, c, player);
 
-      // Instantly return if we win with Igo
+      // Instantly return if we win
       if (checkForIgo(sim.newBoard, player)) {
         return move;
       }
 
-      // Run 2-ply Minimax for the opponent's best response
-      const evalValue = minimax(sim.newBoard, 2, false, -Infinity, Infinity, player);
+      // Run Minimax for opponent
+      const evalValue = minimax(sim.newBoard, depth - 1, false, -Infinity, Infinity, player);
       
       if (evalValue > maxScore) {
         maxScore = evalValue;
