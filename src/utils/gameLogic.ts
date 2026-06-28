@@ -3,15 +3,37 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { Player, BoardState, GamePiece, CellValue } from "../types";
+import { Player, BoardState, CellValue } from "../types";
+
+// ─── Node Counter ─────────────────────────────────────────────────────────────
+
+let _nodeCount = 0;
+let _alphaBetaEnabled = true;
+
+export interface SearchStats {
+  difficulty: string;
+  depth: number;
+  nodesWithAB: number;
+  nodesWithoutAB: number;
+  pruningEfficiency: number;
+  timeWithAB: number;
+  timeWithoutAB: number;
+  bestMove: [number, number] | null;
+}
+
+let _lastSearchStats: SearchStats | null = null;
+
+export function getLastSearchStats(): SearchStats | null {
+  return _lastSearchStats;
+}
+
+// ─── Board Utilities ──────────────────────────────────────────────────────────
 
 export function createInitialBoard(): BoardState {
   const board: BoardState = [];
   for (let r = 0; r < 8; r++) {
     const row: CellValue[] = [];
-    for (let c = 0; c < 8; c++) {
-      row.push(null);
-    }
+    for (let c = 0; c < 8; c++) row.push(null);
     board.push(row);
   }
   return board;
@@ -21,7 +43,6 @@ export function isValidCoordinate(r: number, c: number): boolean {
   return r >= 0 && r < 8 && c >= 0 && c < 8;
 }
 
-// Counts contiguous pieces of specified player starting near (r, c) in direction (dr, dc)
 export function countContiguous(
   board: BoardState,
   startR: number,
@@ -33,7 +54,6 @@ export function countContiguous(
   let count = 0;
   let currR = startR + dr;
   let currC = startC + dc;
-
   while (isValidCoordinate(currR, currC)) {
     const piece = board[currR][currC];
     if (piece && piece.owner === player) {
@@ -44,11 +64,9 @@ export function countContiguous(
     currR += dr;
     currC += dc;
   }
-
   return count;
 }
 
-// Get the coordinates of contiguous pieces of specified player starting near (r, c) in direction (dr, dc)
 export function getContiguousCoords(
   board: BoardState,
   startR: number,
@@ -60,7 +78,6 @@ export function getContiguousCoords(
   const coords: [number, number][] = [];
   let currR = startR + dr;
   let currC = startC + dc;
-
   while (isValidCoordinate(currR, currC)) {
     const piece = board[currR][currC];
     if (piece && piece.owner === player) {
@@ -71,11 +88,9 @@ export function getContiguousCoords(
     currR += dr;
     currC += dc;
   }
-
   return coords;
 }
 
-// Validates if a move is legal according to MigoYugo rules
 export function validateMove(
   board: BoardState,
   r: number,
@@ -85,12 +100,10 @@ export function validateMove(
   if (!isValidCoordinate(r, c)) {
     return { legal: false, reason: "Coordinates are out of bounds." };
   }
-
   if (board[r][c] !== null) {
     return { legal: false, reason: "Tile is already occupied." };
   }
 
-  // Check the 4 directions for "No Long Lines":
   const directions = [
     { dr: 0, dc: 1, name: "Horizontal" },
     { dr: 1, dc: 0, name: "Vertical" },
@@ -102,7 +115,6 @@ export function validateMove(
     const forward = countContiguous(board, r, c, dir.dr, dir.dc, player);
     const backward = countContiguous(board, r, c, -dir.dr, -dir.dc, player);
     const totalLength = 1 + forward + backward;
-
     if (totalLength > 4) {
       const coordName = `${String.fromCharCode(65 + c)}${8 - r}`;
       return {
@@ -111,11 +123,9 @@ export function validateMove(
       };
     }
   }
-
   return { legal: true };
 }
 
-// Executes a move, returning the new board state, whether any Yugo was created, and affected cells
 export function executeMove(
   board: BoardState,
   r: number,
@@ -128,21 +138,14 @@ export function executeMove(
   yugoCell: [number, number] | null;
 } {
   const validation = validateMove(board, r, c, player);
-  if (!validation.legal) {
-    throw new Error(validation.reason || "Illegal move");
-  }
+  if (!validation.legal) throw new Error(validation.reason || "Illegal move");
 
-  // Create absolute deep copy
   const newBoard: BoardState = board.map((row) =>
     row.map((cell) => (cell ? { ...cell } : null)),
   );
 
   const pId = `${player}-${Date.now()}-${r}-${c}`;
-  newBoard[r][c] = {
-    owner: player,
-    type: "migo",
-    id: pId,
-  };
+  newBoard[r][c] = { owner: player, type: "migo", id: pId };
 
   const directions = [
     { dr: 0, dc: 1 },
@@ -166,21 +169,14 @@ export function executeMove(
       player,
     );
     const totalLength = 1 + fCoords.length + bCoords.length;
-
     if (totalLength === 4) {
       becameYugo = true;
       intersectingLinesCount++;
       fCoords.forEach(([cr, cc]) => {
-        const piece = newBoard[cr][cc];
-        if (piece && piece.type === "migo") {
-          cellsToClear.push([cr, cc]);
-        }
+        if (newBoard[cr][cc]?.type === "migo") cellsToClear.push([cr, cc]);
       });
       bCoords.forEach(([cr, cc]) => {
-        const piece = newBoard[cr][cc];
-        if (piece && piece.type === "migo") {
-          cellsToClear.push([cr, cc]);
-        }
+        if (newBoard[cr][cc]?.type === "migo") cellsToClear.push([cr, cc]);
       });
     }
   }
@@ -188,7 +184,6 @@ export function executeMove(
   if (becameYugo) {
     let yugoShape: "circle" | "oval" | "triangle" | "square" = "circle";
     let yugoPoints = 1;
-
     if (intersectingLinesCount === 2) {
       yugoShape = "oval";
       yugoPoints = 2;
@@ -208,10 +203,9 @@ export function executeMove(
     }
 
     const uniqueClearsMap = new Map<string, [number, number]>();
-    cellsToClear.forEach(([cr, cc]) => {
-      uniqueClearsMap.set(`${cr},${cc}`, [cr, cc]);
-    });
-
+    cellsToClear.forEach(([cr, cc]) =>
+      uniqueClearsMap.set(`${cr},${cc}`, [cr, cc]),
+    );
     uniqueClearsMap.forEach(([cr, cc]) => {
       newBoard[cr][cc] = null;
     });
@@ -224,15 +218,9 @@ export function executeMove(
     };
   }
 
-  return {
-    newBoard,
-    yugoCreated: false,
-    affectedCells: [],
-    yugoCell: null,
-  };
+  return { newBoard, yugoCreated: false, affectedCells: [], yugoCell: null };
 }
 
-// Scans board to check if specified player has an unbroken line of exactly 4 Yugos (Igo victory)
 export function checkForIgo(board: BoardState, player: Player): boolean {
   const directions = [
     { dr: 0, dc: 1 },
@@ -270,43 +258,34 @@ export function checkForIgo(board: BoardState, player: Player): boolean {
         for (const dir of directions) {
           const f = countContigYugos(r, c, dir.dr, dir.dc);
           const b = countContigYugos(r, c, -dir.dr, -dir.dc);
-          if (1 + f + b >= 4) {
-            return true;
-          }
+          if (1 + f + b >= 4) return true;
         }
       }
     }
   }
-
   return false;
 }
 
-// Scans all 64 squares to find any valid moves for a player
 export function getLegalMoves(
   board: BoardState,
   player: Player,
 ): [number, number][] {
   const moves: [number, number][] = [];
-  for (let r = 0; r < 8; r++) {
-    for (let c = 0; c < 8; c++) {
-      if (validateMove(board, r, c, player).legal) {
-        moves.push([r, c]);
-      }
-    }
-  }
+  for (let r = 0; r < 8; r++)
+    for (let c = 0; c < 8; c++)
+      if (validateMove(board, r, c, player).legal) moves.push([r, c]);
   return moves;
 }
 
-// Counts Yugos on the board for both players
 export function countYugos(board: BoardState) {
-  let white = 0;
-  let black = 0;
-  let whitePoints = 0;
-  let blackPoints = 0;
+  let white = 0,
+    black = 0,
+    whitePoints = 0,
+    blackPoints = 0;
   for (let r = 0; r < 8; r++) {
     for (let c = 0; c < 8; c++) {
       const piece = board[r][c];
-      if (piece && piece.type === "yugo") {
+      if (piece?.type === "yugo") {
         if (piece.owner === "white") {
           white++;
           whitePoints += piece.yugoPoints || 1;
@@ -321,14 +300,13 @@ export function countYugos(board: BoardState) {
   return { white, black, whitePoints, blackPoints };
 }
 
-// Counts Migos on the board for both players
 export function countMigos(board: BoardState) {
-  let white = 0;
-  let black = 0;
+  let white = 0,
+    black = 0;
   for (let r = 0; r < 8; r++) {
     for (let c = 0; c < 8; c++) {
       const piece = board[r][c];
-      if (piece && piece.type === "migo") {
+      if (piece?.type === "migo") {
         if (piece.owner === "white") white++;
         if (piece.owner === "black") black++;
       }
@@ -337,20 +315,8 @@ export function countMigos(board: BoardState) {
   return { white, black };
 }
 
-// ─── AI: Async wrapper so the UI never freezes ────────────────────────────────
+// ─── Async wrapper ────────────────────────────────────────────────────────────
 
-/**
- * Call this instead of getBestMove directly in your UI code.
- * It defers computation to the next event loop tick so React can render
- * a "thinking..." state before the AI blocks the thread.
- *
- * Usage:
- *   setAiThinking(true);
- *   requestAIMove(board, player, difficulty, (move) => {
- *     if (move) applyMove(move);
- *     setAiThinking(false);
- *   });
- */
 export function requestAIMove(
   board: BoardState,
   player: Player,
@@ -363,7 +329,7 @@ export function requestAIMove(
   }, 0);
 }
 
-// ─── AI: Minimax heuristic-based solver ──────────────────────────────────────
+// ─── AI: getBestMove with node counting ──────────────────────────────────────
 
 export function getBestMove(
   board: BoardState,
@@ -375,26 +341,21 @@ export function getBestMove(
 
   const opponent: Player = player === "white" ? "black" : "white";
 
-  // BABY: Pure random
   if (difficulty === "baby") {
+    _lastSearchStats = null;
     return legalMoves[Math.floor(Math.random() * legalMoves.length)];
   }
 
-  // Pre-sort moves by fast heuristic so alpha-beta prunes more aggressively
+  // Pre-sort moves by fast heuristic
   const moveEvaluations = legalMoves.map(([r, c]) => {
     let score = 0;
-
-    // Center proximity bonus
     const distToCenter = Math.abs(r - 3.5) + Math.abs(c - 3.5);
     score += (7 - distToCenter) * 0.5;
-
     try {
       const sim = executeMove(board, r, c, player);
       if (checkForIgo(sim.newBoard, player)) score += 10000;
       if (sim.yugoCreated) score += 300;
     } catch (_) {}
-
-    // Reward blocking opponent near-complete lines
     for (const dir of [
       { dr: 0, dc: 1 },
       { dr: 1, dc: 0 },
@@ -407,19 +368,13 @@ export function getBestMove(
       if (oppLen >= 3) score += 1500;
       else if (oppLen === 2) score += 200;
     }
-
     return { move: [r, c] as [number, number], score };
   });
 
   moveEvaluations.sort((a, b) => b.score - a.score);
 
-  // ── Difficulty settings ──────────────────────────────────────────────────
-  // FIX: Grandmaster reduced from depth 6 → depth 4, branch widened 6 → 10.
-  // Old: 6^6 = 46,656 leaf nodes. New: 4^4 = 256 leaf nodes (~180× faster).
-  // Alpha-beta pruning cuts that further to ~75–130 in practice.
-  let depth = 2;
-  let maxBranch = 15;
-
+  let depth = 2,
+    maxBranch = 15;
   if (difficulty === "novice") {
     depth = 2;
     maxBranch = 10;
@@ -427,13 +382,18 @@ export function getBestMove(
     depth = 3;
     maxBranch = 12;
   } else if (difficulty === "grandmaster") {
-    depth = 4; // was 6
-    maxBranch = 10; // was 6 — wider & shallower is smarter and much faster
+    depth = 4;
+    maxBranch = 10;
   }
 
   const sortedLegalMoves = moveEvaluations
     .slice(0, maxBranch)
     .map((e) => e.move);
+
+  // ── RUN 1: Alpha-Beta aktif (mode normal) ────────────────────────────────
+  _alphaBetaEnabled = true;
+  _nodeCount = 0;
+  const t1Start = performance.now();
 
   let bestMove: [number, number] | null = null;
   let maxScore = -Infinity;
@@ -442,12 +402,20 @@ export function getBestMove(
     const [r, c] = move;
     try {
       const sim = executeMove(board, r, c, player);
-
-      // Instant win — no need to search further
       if (checkForIgo(sim.newBoard, player)) {
+        // Instant win
+        _lastSearchStats = {
+          difficulty,
+          depth,
+          nodesWithAB: _nodeCount + 1,
+          nodesWithoutAB: 0,
+          pruningEfficiency: 0,
+          timeWithAB: performance.now() - t1Start,
+          timeWithoutAB: 0,
+          bestMove: move,
+        };
         return move;
       }
-
       const evalValue = minimax(
         sim.newBoard,
         depth - 1,
@@ -456,20 +424,57 @@ export function getBestMove(
         Infinity,
         player,
       );
-
       if (evalValue > maxScore) {
         maxScore = evalValue;
         bestMove = move;
       }
-    } catch (_) {
-      // Skip illegal moves
-    }
+    } catch (_) {}
   }
+
+  const nodesWithAB = _nodeCount;
+  const timeWithAB = performance.now() - t1Start;
+
+  // ── RUN 2: Alpha-Beta dinonaktifkan (simulasi Minimax murni) ─────────────
+  // Depth dikurangi 1 agar tidak terlalu lama tanpa pruning
+  const pureDepth = Math.max(1, depth - 1);
+  _alphaBetaEnabled = false;
+  _nodeCount = 0;
+  const t2Start = performance.now();
+
+  for (const move of sortedLegalMoves) {
+    const [r, c] = move;
+    try {
+      const sim = executeMove(board, r, c, player);
+      minimax(sim.newBoard, pureDepth - 1, false, -Infinity, Infinity, player);
+    } catch (_) {}
+  }
+
+  const nodesWithoutAB = _nodeCount;
+  const timeWithoutAB = performance.now() - t2Start;
+
+  // Kembalikan ke mode normal
+  _alphaBetaEnabled = true;
+
+  const pruningEfficiency =
+    nodesWithoutAB > 0
+      ? Math.round(((nodesWithoutAB - nodesWithAB) / nodesWithoutAB) * 100)
+      : 0;
+
+  _lastSearchStats = {
+    difficulty,
+    depth,
+    nodesWithAB,
+    nodesWithoutAB,
+    pruningEfficiency,
+    timeWithAB,
+    timeWithoutAB,
+    bestMove,
+  };
 
   return bestMove || sortedLegalMoves[0];
 }
 
-// ─── Minimax with Alpha-Beta pruning ─────────────────────────────────────────
+// ─── Minimax with Alpha-Beta pruning + node counter ───────────────────────────
 
 function minimax(
   board: BoardState,
@@ -479,12 +484,13 @@ function minimax(
   beta: number,
   player: Player,
 ): number {
+  _nodeCount++; // ← setiap node yang dikunjungi dihitung di sini
+
   const opponent: Player = player === "white" ? "black" : "white";
   const activePlayer = isMaximizing ? player : opponent;
 
-  // Terminal: win/loss detection
-  if (checkForIgo(board, player)) return 100000 + depth; // sooner wins score higher
-  if (checkForIgo(board, opponent)) return -100000 - depth; // sooner losses score lower
+  if (checkForIgo(board, player)) return 100000 + depth;
+  if (checkForIgo(board, opponent)) return -100000 - depth;
 
   const legalMoves = getLegalMoves(board, activePlayer);
   if (legalMoves.length === 0 || depth === 0) {
@@ -506,7 +512,8 @@ function minimax(
         );
         maxEval = Math.max(maxEval, evaluation);
         alpha = Math.max(alpha, evaluation);
-        if (beta <= alpha) break; // Prune
+        // Cutoff hanya aktif jika _alphaBetaEnabled = true
+        if (_alphaBetaEnabled && beta <= alpha) break;
       } catch (_) {}
     }
     return maxEval;
@@ -525,7 +532,8 @@ function minimax(
         );
         minEval = Math.min(minEval, evaluation);
         beta = Math.min(beta, evaluation);
-        if (beta <= alpha) break; // Prune
+        // Cutoff hanya aktif jika _alphaBetaEnabled = true
+        if (_alphaBetaEnabled && beta <= alpha) break;
       } catch (_) {}
     }
     return minEval;
@@ -534,11 +542,6 @@ function minimax(
 
 // ─── Board evaluation ─────────────────────────────────────────────────────────
 
-/**
- * FIX: `depth` param added so we skip the expensive getLegalMoves()
- * mobility calls at deep nodes (depth < 3), where the cost is highest
- * and the impact on move quality is minimal.
- */
 function evaluateBoardState(
   board: BoardState,
   player: Player,
@@ -559,17 +562,10 @@ function evaluateBoardState(
   const oppMigoCount = player === "white" ? migoStats.black : migoStats.white;
 
   let score = 0;
-
-  // 1. Yugo points & count (primary)
   score += (myYugoPoints - oppYugoPoints) * 300;
   score += (myYugoCount - oppYugoCount) * 100;
-
-  // 2. Migo count (secondary build-up indicator)
   score += (myMigoCount - oppMigoCount) * 10;
 
-  // 3. Positional + streak scan
-  //    FIX: Only count a streak once — skip if there are pieces BEHIND in this
-  //    direction to avoid double-counting every streak from both ends.
   const directions = [
     { dr: 0, dc: 1 },
     { dr: 1, dc: 0 },
@@ -582,24 +578,18 @@ function evaluateBoardState(
       const piece = board[r][c];
       if (!piece) continue;
 
-      const isMe = piece.owner === player;
-      const multiplier = isMe ? 1 : -1;
-
-      // Center proximity bonus
+      const multiplier = piece.owner === player ? 1 : -1;
       const centerBonus = (7 - (Math.abs(r - 3.5) + Math.abs(c - 3.5))) * 2;
       score += centerBonus * multiplier;
 
       for (const dir of directions) {
-        // Skip if there's a same-owner piece behind us — that piece already
-        // counted this streak, so we'd be double-counting.
         const behindR = r - dir.dr;
         const behindC = c - dir.dc;
         if (
           isValidCoordinate(behindR, behindC) &&
           board[behindR][behindC]?.owner === piece.owner
-        ) {
+        )
           continue;
-        }
 
         const forward = countContiguous(
           board,
@@ -609,13 +599,12 @@ function evaluateBoardState(
           dir.dc,
           piece.owner,
         );
-        const totalLength = 1 + forward; // backward is 0 by the guard above
+        const totalLength = 1 + forward;
 
         if (piece.type === "yugo") {
           if (totalLength === 3) score += 150 * multiplier;
           else if (totalLength === 2) score += 30 * multiplier;
         } else {
-          // migo
           if (totalLength === 3) score += 50 * multiplier;
           else if (totalLength === 2) score += 15 * multiplier;
         }
@@ -623,8 +612,6 @@ function evaluateBoardState(
     }
   }
 
-  // 4. Mobility: only compute at shallow search depths to avoid calling
-  //    getLegalMoves (64× validateMove) thousands of times deep in the tree.
   if (depth >= 2) {
     const myMoves = getLegalMoves(board, player).length;
     const oppMoves = getLegalMoves(board, opponent).length;
